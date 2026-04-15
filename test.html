@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claude Code 互動學習系統</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
+        /* 隱藏捲軸但保留捲動功能 */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .option-label {
+            transition: all 0.2s ease;
+        }
+        .option-label:hover {
+            background-color: #f3f4f6;
+            transform: translateX(4px);
+        }
+        input[type="radio"]:checked + span {
+            font-weight: bold;
+            color: #2563eb;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 h-screen overflow-hidden flex flex-col text-slate-800">
+
+    <!-- 頂部導覽列 -->
+    <header class="bg-white shadow-sm p-4 flex items-center justify-between z-10">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 bg-blue-600 text-white rounded-lg flex items-center justify-center font-bold text-xl shadow-md">
+                CC
+            </div>
+            <div>
+                <h1 class="text-xl font-bold text-slate-800">Claude Code 零基礎入門（上）</h1>
+                <p class="text-sm text-slate-500">影片互動隨堂測驗系統</p>
+            </div>
+        </div>
+        <div class="text-sm font-semibold px-3 py-1 bg-blue-100 text-blue-700 rounded-full" id="global-progress">
+            進度：0 / 10
+        </div>
+    </header>
+
+    <!-- 主要內容區塊 -->
+    <main class="flex-1 flex flex-col lg:flex-row p-4 gap-4 overflow-hidden">
+        
+        <!-- 左側：影片播放區 -->
+        <div class="w-full lg:w-2/3 bg-black rounded-xl shadow-lg overflow-hidden flex flex-col relative h-[40vh] lg:h-full">
+            <div id="player" class="w-full h-full absolute inset-0"></div>
+            <!-- 遮罩層 (測驗時防止操作影片) -->
+            <div id="video-overlay" class="absolute inset-0 bg-black/60 z-10 hidden flex flex-col items-center justify-center backdrop-blur-sm">
+                <div class="text-white text-2xl font-bold mb-2 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 256 256"><path fill="currentColor" d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Zm-8 56a8 8 0 0 1 16 0v56a8 8 0 0 1-16 0Zm8 104a12 12 0 1 1 12-12a12 12 0 0 1-12 12Z"/></svg>
+                    隨堂測驗時間
+                </div>
+                <p class="text-slate-200">請在右側回答問題以繼續觀看影片</p>
+            </div>
+        </div>
+
+        <!-- 右側：測驗與進度區 -->
+        <div class="w-full lg:w-1/3 bg-white rounded-xl shadow-lg flex flex-col overflow-hidden h-[50vh] lg:h-full border border-slate-200">
+            
+            <!-- 狀態提示 (預設顯示) -->
+            <div id="waiting-panel" class="p-8 flex flex-col items-center justify-center h-full text-center bg-slate-50 transition-opacity">
+                <div class="w-20 h-20 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mb-4 shadow-inner">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 256 256"><path fill="currentColor" d="M240 96v64a16 16 0 0 1-16 16h-16v16a16 16 0 0 1-16 16H64a16 16 0 0 1-16-16V64a16 16 0 0 1 16-16h160a16 16 0 0 1 16 16Zm-16-32H64v128h128v-16a16 16 0 0 1 16-16h16ZM88 112a8 8 0 0 0 8 8h64a8 8 0 0 0 0-16H96a8 8 0 0 0-8 8Zm0 32a8 8 0 0 0 8 8h64a8 8 0 0 0 0-16H96a8 8 0 0 0-8 8Zm120-64H64v-16h144Z"/></svg>
+                </div>
+                <h2 class="text-xl font-bold text-slate-800 mb-2" id="waiting-title">請開始播放影片</h2>
+                <p class="text-slate-500" id="waiting-desc">系統會自動追蹤您的進度。<br>下一個章節結束時，測驗將自動彈出。</p>
+            </div>
+
+            <!-- 測驗面板 (隱藏，觸發時顯示) -->
+            <div id="quiz-panel" class="hidden flex-col h-full bg-white relative">
+                <div class="p-6 border-b border-slate-100 bg-blue-50">
+                    <div class="text-xs font-bold text-blue-600 uppercase tracking-wider mb-1" id="quiz-chapter-tag">Chapter 1</div>
+                    <h2 class="text-xl font-bold text-slate-800" id="quiz-question">題目載入中...</h2>
+                </div>
+                
+                <div class="p-6 flex-1 overflow-y-auto no-scrollbar" id="quiz-options">
+                    <!-- 選項將由 JS 動態生成 -->
+                </div>
+
+                <div class="p-6 border-t border-slate-100 bg-slate-50 flex flex-col gap-3">
+                    <div id="quiz-feedback" class="text-sm font-bold hidden text-center p-2 rounded-lg"></div>
+                    <button id="submit-btn" onclick="submitAnswer()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-colors disabled:bg-slate-300 disabled:cursor-not-allowed">
+                        提交答案
+                    </button>
+                </div>
+            </div>
+
+            <!-- 底部章節目錄與進度 (縮小顯示) -->
+            <div class="h-1/3 min-h-[150px] border-t border-slate-200 bg-white flex flex-col">
+                <div class="p-3 bg-slate-50 border-b border-slate-100 text-sm font-bold text-slate-600 flex justify-between items-center">
+                    <span>📑 章節目錄與進度</span>
+                </div>
+                <div class="flex-1 overflow-y-auto p-3 space-y-2 no-scrollbar" id="chapter-list">
+                    <!-- 章節清單由 JS 動態生成 -->
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // 測驗題庫與章節設定 (時間為秒數)
+        const quizzes = [
+            {
+                id: 0,
+                time: 100, // 01:40
+                chapterTitle: "開場：CC 是什麼？不只是寫程式",
+                question: "根據影片，Claude Code (CC) 最主要的功能不只是寫程式，它還能做什麼？",
+                options: [
+                    "只能幫你寫社群貼文",
+                    "只能當作聊天的圖書館",
+                    "幫你爬資料與實際執行工作的 AI 助理"
+                ],
+                answerIndex: 2,
+                passed: false
+            },
+            {
+                id: 1,
+                time: 156, // 02:36
+                chapterTitle: "CC 不只是寫程式",
+                question: "作者提到非工程師為什麼也該學 CC？",
+                options: [
+                    "因為它能成為最懂你的本地工作助理",
+                    "因為工程師薪水很高，學了可以轉職",
+                    "因為圖形化介面很漂亮"
+                ],
+                answerIndex: 0,
+                passed: false
+            },
+            {
+                id: 2,
+                time: 304, // 05:04
+                chapterTitle: "實際應用案例",
+                question: "影片中「雷小蒙」**沒有**幫作者做到哪件事？",
+                options: [
+                    "幫忙打電話向客戶推銷",
+                    "自動去電腦爬取工作與對話紀錄來總結",
+                    "整合 GA 數據與 WordPress 到儀表板"
+                ],
+                answerIndex: 0,
+                passed: false
+            },
+            {
+                id: 3,
+                time: 489, // 08:09
+                chapterTitle: "AI 應用三階段",
+                question: "影片提到 AI 發展的第三個階段「Code (Claude Code)」有什麼最大特色？",
+                options: [
+                    "像圖書館，能快速給你問答答案",
+                    "像貼身管家，能深度調用本地資料與工具來執行任務",
+                    "像外包整理師，只能幫你分類資料夾"
+                ],
+                answerIndex: 1,
+                passed: false
+            },
+            {
+                id: 4,
+                time: 524, // 08:44
+                chapterTitle: "挑戰終端機",
+                question: "為什麼作者建議初學者直接挑戰全黑的「終端機」而非圖形化介面？",
+                options: [
+                    "因為這才是發揮 CC 完整潛力、最有效率的路徑",
+                    "因為終端機畫面看起來比較專業",
+                    "因為圖形化介面需要額外付費"
+                ],
+                answerIndex: 0,
+                passed: false
+            },
+            {
+                id: 5,
+                time: 619, // 10:19
+                chapterTitle: "AI 時代的升級路徑 (盲打)",
+                question: "作者用「盲打」來比喻學習新 AI 工具的什麼現象？",
+                options: [
+                    "學習時不需要看螢幕就能打字",
+                    "學習初期效率會暫時下降，但突破習慣後效率會大幅提升",
+                    "學習速度會一直呈現等速穩定上升"
+                ],
+                answerIndex: 1,
+                passed: false
+            },
+            {
+                id: 6,
+                time: 823, // 13:43
+                chapterTitle: "Google 搜尋陷阱",
+                question: "在 Google 搜尋下載 Claude Code 時，最需要小心什麼？",
+                options: [
+                    "要注意下載速度是否過慢",
+                    "要避開偽裝成官網的贊助商釣魚廣告網站",
+                    "要注意軟體版本是否支援中文"
+                ],
+                answerIndex: 1,
+                passed: false
+            },
+            {
+                id: 7,
+                time: 927, // 15:27
+                chapterTitle: "AI 記憶搬家術",
+                question: "如何讓 CC 記住你過去在其他 AI (如 ChatGPT) 的對話習慣？",
+                options: [
+                    "將記憶內容整理成 CLAUDE.md 檔案並匯入",
+                    "花三天三夜重新打字教它一次",
+                    "無法搬家，每個 AI 只能從零開始"
+                ],
+                answerIndex: 0,
+                passed: false
+            },
+            {
+                id: 8,
+                time: 1018, // 16:58
+                chapterTitle: "CMUX 終端機",
+                question: "作者推薦安裝新的終端機工具(如 Simul/Cux) 是為了解決預設終端機的什麼缺點？",
+                options: [
+                    "預設終端機無法輸入英文字母",
+                    "預設終端機會導致電腦當機",
+                    "預設終端機難以換行，且無法用滑鼠游標點選修改文字"
+                ],
+                answerIndex: 2,
+                passed: false
+            },
+            {
+                id: 9,
+                time: 1080, // 18:00
+                chapterTitle: "巨嬰心態",
+                question: "遇到不懂的終端機指令（如 CD）時，作者建議保持「巨嬰心態」，這代表什麼意思？",
+                options: [
+                    "直接把問題問 AI，讓 AI 幫你寫指令與解決方案",
+                    "立刻放棄學習，因為這太難了",
+                    "生氣並把電腦關機"
+                ],
+                answerIndex: 0,
+                passed: false
+            }
+        ];
+
+        let player;
+        let isPlayerReady = false;
+        let checkInterval;
+        let activeQuiz = null;
+
+        // 初始化 YouTube IFrame API
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('player', {
+                height: '100%',
+                width: '100%',
+                videoId: 'xo7dE80ktu4',
+                playerVars: {
+                    'playsinline': 1,
+                    'rel': 0
+                },
+                events: {
+                    'onReady': onPlayerReady,
+                    'onStateChange': onPlayerStateChange
+                }
+            });
+        }
+
+        function onPlayerReady(event) {
+            isPlayerReady = true;
+            renderChapterList();
+            updateGlobalProgress();
+        }
+
+        function onPlayerStateChange(event) {
+            if (event.data == YT.PlayerState.PLAYING) {
+                document.getElementById('waiting-title').innerText = "觀看中...";
+                document.getElementById('waiting-desc').innerText = "請專心觀看，測驗將在章節結束時自動彈出。";
+                startTimeTracking();
+            } else {
+                stopTimeTracking();
+            }
+        }
+
+        function startTimeTracking() {
+            if (checkInterval) clearInterval(checkInterval);
+            checkInterval = setInterval(checkQuizTriggers, 1000);
+        }
+
+        function stopTimeTracking() {
+            if (checkInterval) clearInterval(checkInterval);
+        }
+
+        function checkQuizTriggers() {
+            if (!isPlayerReady || !player.getCurrentTime) return;
+            
+            const currentTime = player.getCurrentTime();
+            
+            // 尋找第一個「時間已經到了，但尚未通過」的測驗
+            // 這樣可以防止使用者快轉跳過測驗
+            const pendingQuiz = quizzes.find(q => !q.passed && currentTime >= q.time);
+            
+            if (pendingQuiz) {
+                // 觸發測驗
+                player.pauseVideo();
+                activeQuiz = pendingQuiz;
+                showQuizPanel(pendingQuiz);
+            }
+        }
+
+        function showQuizPanel(quiz) {
+            document.getElementById('video-overlay').classList.remove('hidden');
+            document.getElementById('waiting-panel').classList.add('hidden');
+            document.getElementById('quiz-panel').classList.remove('hidden');
+            document.getElementById('quiz-panel').classList.add('flex');
+            
+            document.getElementById('quiz-chapter-tag').innerText = `目前進度：${quiz.chapterTitle}`;
+            document.getElementById('quiz-question').innerText = quiz.question;
+            
+            const optionsContainer = document.getElementById('quiz-options');
+            optionsContainer.innerHTML = '';
+            
+            quiz.options.forEach((opt, index) => {
+                const optHtml = `
+                    <label class="option-label flex items-start gap-3 p-4 mb-3 border border-slate-200 rounded-xl cursor-pointer">
+                        <div class="pt-1">
+                            <input type="radio" name="quiz-option" value="${index}" class="w-5 h-5 text-blue-600 border-gray-300 focus:ring-blue-500">
+                        </div>
+                        <span class="text-slate-700 leading-tight">${opt}</span>
+                    </label>
+                `;
+                optionsContainer.insertAdjacentHTML('beforeend', optHtml);
+            });
+
+            // Reset feedback
+            const feedback = document.getElementById('quiz-feedback');
+            feedback.classList.add('hidden');
+            feedback.className = 'text-sm font-bold hidden text-center p-3 rounded-lg';
+            
+            document.getElementById('submit-btn').disabled = false;
+            document.getElementById('submit-btn').innerText = "提交答案";
+        }
+
+        function submitAnswer() {
+            if (!activeQuiz) return;
+            
+            const selectedOption = document.querySelector('input[name="quiz-option"]:checked');
+            const feedback = document.getElementById('quiz-feedback');
+            
+            if (!selectedOption) {
+                feedback.innerText = "⚠️ 請先選擇一個答案";
+                feedback.classList.remove('hidden', 'bg-green-100', 'text-green-700', 'bg-red-100', 'text-red-700');
+                feedback.classList.add('bg-orange-100', 'text-orange-700', 'block');
+                return;
+            }
+
+            const answerVal = parseInt(selectedOption.value);
+            const isCorrect = (answerVal === activeQuiz.answerIndex);
+
+            document.getElementById('submit-btn').disabled = true;
+
+            if (isCorrect) {
+                // 答對了
+                feedback.innerText = "✅ 答對了！非常棒！";
+                feedback.classList.remove('hidden', 'bg-orange-100', 'text-orange-700', 'bg-red-100', 'text-red-700');
+                feedback.classList.add('bg-green-100', 'text-green-700', 'block');
+                
+                activeQuiz.passed = true;
+                updateGlobalProgress();
+                renderChapterList(); // 更新打勾狀態
+
+                // 2秒後自動繼續播放
+                document.getElementById('submit-btn').innerText = "即將繼續播放...";
+                setTimeout(() => {
+                    closeQuizPanel();
+                    player.playVideo();
+                }, 2000);
+            } else {
+                // 答錯了
+                feedback.innerText = "❌ 答錯囉！請重新思考一下影片內容。";
+                feedback.classList.remove('hidden', 'bg-orange-100', 'text-orange-700', 'bg-green-100', 'text-green-700');
+                feedback.classList.add('bg-red-100', 'text-red-700', 'block');
+                
+                setTimeout(() => {
+                    document.getElementById('submit-btn').disabled = false;
+                }, 1000);
+            }
+        }
+
+        function closeQuizPanel() {
+            activeQuiz = null;
+            document.getElementById('video-overlay').classList.add('hidden');
+            document.getElementById('quiz-panel').classList.add('hidden');
+            document.getElementById('quiz-panel').classList.remove('flex');
+            
+            // 檢查是否全通關
+            const allPassed = quizzes.every(q => q.passed);
+            const waitingPanel = document.getElementById('waiting-panel');
+            waitingPanel.classList.remove('hidden');
+            
+            if(allPassed) {
+                document.getElementById('waiting-title').innerText = "🎉 恭喜完成所有測驗！";
+                document.getElementById('waiting-desc').innerText = "您已成功掌握本影片的所有精華重點，您可以繼續自由觀看影片剩餘部分。";
+            } else {
+                document.getElementById('waiting-title').innerText = "觀看中...";
+                document.getElementById('waiting-desc').innerText = "測驗通過！請繼續觀看下一個章節。";
+            }
+        }
+
+        function updateGlobalProgress() {
+            const passedCount = quizzes.filter(q => q.passed).length;
+            const totalCount = quizzes.length;
+            document.getElementById('global-progress').innerText = `測驗進度：${passedCount} / ${totalCount}`;
+        }
+
+        function formatTime(seconds) {
+            const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+            const s = (seconds % 60).toString().padStart(2, '0');
+            return `${m}:${s}`;
+        }
+
+        function renderChapterList() {
+            const listContainer = document.getElementById('chapter-list');
+            listContainer.innerHTML = '';
+            
+            quizzes.forEach((quiz, index) => {
+                const isPassed = quiz.passed;
+                const iconHtml = isPassed 
+                    ? `<svg class="w-5 h-5 text-green-500" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><path fill="currentColor" d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Zm45.66 85.66l-56 56a8 8 0 0 1-11.32 0l-24-24a8 8 0 0 1 11.32-11.32L112 148.69l50.34-50.35a8 8 0 0 1 11.32 11.32Z"/></svg>` 
+                    : `<svg class="w-5 h-5 text-slate-300" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256"><path fill="currentColor" d="M128 24a104 104 0 1 0 104 104A104.11 104.11 0 0 0 128 24Zm0 192a88 88 0 1 1 88-88a88.1 88.1 0 0 1-88 88Z"/></svg>`;
+                
+                const html = `
+                    <div class="flex items-center gap-3 p-2 rounded-lg ${isPassed ? 'bg-green-50/50' : 'hover:bg-slate-50 cursor-pointer'} transition-colors" ${!isPassed ? `onclick="seekTo(${quiz.time - 5})"` : ''} title="${!isPassed ? '點擊跳轉至測驗前5秒' : ''}">
+                        ${iconHtml}
+                        <div class="flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+                            <span class="text-sm font-semibold ${isPassed ? 'text-slate-800' : 'text-slate-500'}">${index + 1}. ${quiz.chapterTitle}</span>
+                        </div>
+                        <span class="text-xs font-mono text-slate-400 bg-slate-100 px-2 py-1 rounded">${formatTime(quiz.time)}</span>
+                    </div>
+                `;
+                listContainer.insertAdjacentHTML('beforeend', html);
+            });
+        }
+
+        // 供側邊欄點擊跳轉使用
+        window.seekTo = function(seconds) {
+            if(player && player.seekTo) {
+                player.seekTo(seconds, true);
+                player.playVideo();
+            }
+        }
+    </script>
+</body>
+</html>
